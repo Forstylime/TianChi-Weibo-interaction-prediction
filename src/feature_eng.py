@@ -111,9 +111,20 @@ def create_features(df_train, df_test):
             lambda x: x.shift(1).expanding().median()
         )
 
-        # Fill NaNs (for the user's very first post) with 0
-        hist_cols = [f'user_past_avg_{col}', f'user_past_q90_{col}', 
-                     f'user_recent_5_avg_{col}', f'user_past_median_{col}']
+        # 4f. Time-Window Features: 3, 7, 14, 30 days (Recent Hotness)
+        # We use closed='left' to anchor the window at the current time but exclude the current row's target (leakage prevention).
+        print(f"Calculating Time-Window Features for {col}...")
+        for days in [3, 7, 14, 30]:
+            roll = df.groupby('uid').rolling(f'{days}D', on='time', closed='left')[col]
+            # Use agg for efficiency (mean, max, median in one pass)
+            roll_res = roll.agg(['mean', 'max', 'median']).reset_index(drop=True)
+            
+            df[f'user_{days}d_mean_{col}'] = roll_res['mean']
+            df[f'user_{days}d_max_{col}'] = roll_res['max']
+            df[f'user_{days}d_median_{col}'] = roll_res['median']
+
+        # Fill NaNs (for the user's very first post or empty windows) with 0
+        hist_cols = [c for c in df.columns if c.startswith('user_') and c.endswith(f'_{col}')]
         df[hist_cols] = df[hist_cols].fillna(0)
 
     # Note on TEST SET targets: 
@@ -123,32 +134,46 @@ def create_features(df_train, df_test):
     
     # Calculate profiles from Train only
     train_df = df[df['is_test'] == 0]
-    user_stats = train_df.groupby('uid').agg({
-        'forward_count': ['mean', ('q90', lambda x: x.quantile(0.9)), 'median'],
-        'comment_count': ['mean', ('q90', lambda x: x.quantile(0.9)), 'median'],
-        'like_count': ['mean', ('q90', lambda x: x.quantile(0.9)), 'median']
-    })
     
-    # Flatten columns: e.g., ('forward_count', 'mean') -> 'train_mean_forward_count'
+    # Build a comprehensive profile for each user:
+    # 1. Overall stats (mean/q90/median of all train posts)
+    # 2. Latest state (last values of windowed/recent features in train)
+    agg_dict = {}
+    for col in targets:
+        agg_dict[col] = ['mean', ('q90', lambda x: x.quantile(0.9)), 'median']
+        # For window features and recent_5, the "profile" is their state at the end of training
+        for days in [3, 7, 14, 30]:
+            for stat in ['mean', 'max', 'median']:
+                agg_dict[f'user_{days}d_{stat}_{col}'] = 'last'
+        agg_dict[f'user_recent_5_avg_{col}'] = 'last'
+
+    user_stats = train_df.groupby('uid').agg(agg_dict)
+    
+    # Flatten multi-index columns: e.g., ('forward_count', 'mean') -> 'train_mean_forward_count'
     user_stats.columns = [f'train_{stat}_{c}' for c, stat in user_stats.columns]
     df = df.merge(user_stats, on='uid', how='left')
     
+    # Global fallback for Cold Start users (fill with global train median)
+    global_medians = user_stats.median()
+    df[user_stats.columns] = df[user_stats.columns].fillna(global_medians)
+    
+    # Override test set historical features with their final train profiles
+    test_mask = (df['is_test'] == 1)
     for col in targets:
-        # Fill missing users (Cold Start) with global train median
-        for stat in ['mean', 'q90', 'median']:
-            feat_name = f'train_{stat}_{col}'
-            global_median = user_stats[feat_name].median()
-            df[feat_name] = df[feat_name].fillna(global_median)
-        
-        # Override test set historical features with their final train profiles
-        test_mask = (df['is_test'] == 1)
+        # 1. Expanding features -> use global train mean/q90/median
         df.loc[test_mask, f'user_past_avg_{col}'] = df.loc[test_mask, f'train_mean_{col}']
         df.loc[test_mask, f'user_past_q90_{col}'] = df.loc[test_mask, f'train_q90_{col}']
         df.loc[test_mask, f'user_past_median_{col}'] = df.loc[test_mask, f'train_median_{col}']
-        df.loc[test_mask, f'user_recent_5_avg_{col}'] = df.loc[test_mask, f'train_mean_{col}']
+        
+        # 2. Window/Recent features -> use the state as of the last training post
+        df.loc[test_mask, f'user_recent_5_avg_{col}'] = df.loc[test_mask, f'train_last_user_recent_5_avg_{col}']
+        for days in [3, 7, 14, 30]:
+            for stat in ['mean', 'max', 'median']:
+                feat = f'user_{days}d_{stat}_{col}'
+                df.loc[test_mask, feat] = df.loc[test_mask, f'train_last_{feat}']
 
     # Drop the temporary training profile columns
-    drop_cols = [f'train_{stat}_{col}' for col in targets for stat in ['mean', 'q90', 'median']]
+    drop_cols = user_stats.columns.tolist()
     df.drop(columns=drop_cols, inplace=True)
 
     # =========================================================

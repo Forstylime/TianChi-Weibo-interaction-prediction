@@ -39,7 +39,6 @@ def calculate_weibo_score(real_df, pred_df, verbose=True):
     if verbose:
         hit_rate = sgn_val.mean()
         high_eng = count_i > 20
-        print(f"  总分: {final_score*100:.4f}%")
         print(f"  整体命中率(precision>0.8): {hit_rate*100:.2f}%")
         print(f"  高互动样本命中率: {sgn_val[high_eng].mean()*100:.2f}% ({high_eng.sum()}条)")
         print(f"  precision_i 均值: {precision_i.mean():.4f}, 中位数: {np.median(precision_i):.4f}")

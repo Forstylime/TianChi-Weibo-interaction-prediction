@@ -71,7 +71,7 @@ def main():
 
     # (1) 评估 Baseline 模型
     baseline_score = calculate_weibo_score(real_valid_data, baseline_val_preds)
-    print(f"\n[Baseline] 基于历史平均值的得分: {baseline_score:.6f}")
+    print(f"\n[Baseline] 基于历史平均值的得分: {baseline_score*100:.4f}")
 
     # (2) 评估 LightGBM 模型 (注意：需要将 _log 后缀的列名还原以匹配评分函数)
     lgbm_val_preds_renamed = lgbm_val_preds.rename(columns={
@@ -80,7 +80,7 @@ def main():
         'like_count_log': 'like_count'
     })
     lgbm_score = calculate_weibo_score(real_valid_data, lgbm_val_preds_renamed)
-    print(f"[LightGBM] 机器学习模型的得分: {lgbm_score:.6f}")
+    print(f"[LightGBM] 机器学习模型的得分: {lgbm_score*100:.4f}")
 
     # 计算提升
     improvement = (lgbm_score - baseline_score) * 100
