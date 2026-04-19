@@ -5,6 +5,8 @@ import xgboost as xgb
 import warnings
 warnings.filterwarnings('ignore')
 
+from utils.calculate_score import calculate_weibo_score
+
 # 训练中不可使用的列（ID类、原始文本、原始时间、以及未转换的标签）
 DROP_COLS = ['uid', 'mid', 'time', 'content', 
              'forward_count', 'comment_count', 'like_count',
@@ -146,13 +148,94 @@ def train_xgboost_and_ensemble(train_set, valid_set, test_set, lgb_test_preds):
         lgb_pred = lgb_test_preds[target].values
         fused_pred = (0.6 * lgb_pred) + (0.4 * xgb_pred)
         
-        # 确保预测值不为负数，并取整
-        final_ensemble_preds[target] = np.clip(np.round(fused_pred), 0, None).astype(int)
+        # 确保预测值不为负数 (暂不取整，留给后处理)
+        final_ensemble_preds[target] = np.clip(fused_pred, 0, None)
         
     return final_ensemble_preds
 
 # =========================================================
-# 5. 集成 Pipeline 函数
+# 5. 后处理与阈值优化
+# =========================================================
+def apply_post_processing(preds, t_f, t_c, t_l):
+    """
+    根据设定的阈值进行后处理：
+    1. 连续值预测如果 < threshold，置为 0。
+    2. 连续值预测如果 >= threshold 且 < 1，置为 1。
+    3. 连续值预测如果 >= 1，使用向下取整 (math.floor)。
+    4. 连带压制规则：如果点赞数为 0，则评论数和转发数强制置为 0。
+    """
+    res = preds.copy()
+    
+    thresholds = {'forward_count': t_f, 'comment_count': t_c, 'like_count': t_l}
+    
+    for col in ['forward_count', 'comment_count', 'like_count']:
+        if col not in res.columns:
+            target_col = col + '_log' if col + '_log' in res.columns else col
+        else:
+            target_col = col
+            
+        val = res[target_col].values.astype(float)
+        new_val = np.floor(val)
+        
+        t = thresholds[col]
+        # values between t and 1 become 1
+        new_val[(val >= t) & (val < 1.0)] = 1.0
+        # values below t become 0
+        new_val[val < t] = 0.0
+        
+        res[target_col] = new_val.astype(int)
+        
+    # 连带压制规则
+    like_col = 'like_count_log' if 'like_count_log' in res.columns else 'like_count'
+    comment_col = 'comment_count_log' if 'comment_count_log' in res.columns else 'comment_count'
+    forward_col = 'forward_count_log' if 'forward_count_log' in res.columns else 'forward_count'
+    
+    mask_like_0 = res[like_col] == 0
+    res.loc[mask_like_0, comment_col] = 0
+    res.loc[mask_like_0, forward_col] = 0
+    
+    return res
+
+def optimize_thresholds(real_valid_data, valid_preds):
+    """
+    在验证集上搜索最佳截断阈值，最大化官方评分。
+    """
+    print("\n--- Optimizing Thresholds ---")
+    best_score = -1.0
+    best_thresholds = (0.5, 0.5, 0.5)
+    
+    # 定义搜索空间 (0.5 到 0.8，步长 0.05)
+    search_space = np.arange(0.5, 0.85, 0.05)
+    
+    # 暂存用于评分的 DataFrame，因为评分函数期望特定的列名
+    eval_preds = valid_preds.copy()
+    if 'forward_count_log' in eval_preds.columns:
+        eval_preds = eval_preds.rename(columns={
+            'forward_count_log': 'forward_count',
+            'comment_count_log': 'comment_count',
+            'like_count_log': 'like_count'
+        })
+        
+    for t_f in search_space:
+        for t_c in search_space:
+            for t_l in search_space:
+                # 应用后处理
+                processed_preds = apply_post_processing(eval_preds, t_f, t_c, t_l)
+                
+                # 计算得分 (verbose=False 避免刷屏)
+                score = calculate_weibo_score(real_valid_data, processed_preds, verbose=False)
+                
+                if score > best_score:
+                    best_score = score
+                    best_thresholds = (t_f, t_c, t_l)
+                    
+    print(f"Best Thresholds Found - Forward: {best_thresholds[0]:.2f}, Comment: {best_thresholds[1]:.2f}, Like: {best_thresholds[2]:.2f}")
+    print(f"Best Validation Score: {best_score*100:.4f}")
+    
+    return best_thresholds
+
+# =========================================================
+# 6. 集成 Pipeline 函数
 # =========================================================
 def run_pipeline(df_train_final, df_test_final):
     """

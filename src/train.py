@@ -73,14 +73,24 @@ def main():
     baseline_score = calculate_weibo_score(real_valid_data, baseline_val_preds)
     print(f"\n[Baseline] 基于历史平均值的得分: {baseline_score*100:.4f}")
 
-    # (2) 评估 LightGBM 模型 (注意：需要将 _log 后缀的列名还原以匹配评分函数)
-    lgbm_val_preds_renamed = lgbm_val_preds.rename(columns={
+    # (2) 评估 LightGBM 模型并寻找最佳阈值
+    from src.model import optimize_thresholds, apply_post_processing
+    
+    # 在未经处理的连续值验证集预测上搜索最佳阈值
+    best_thresholds = optimize_thresholds(real_valid_data, lgbm_val_preds)
+    t_f, t_c, t_l = best_thresholds
+    
+    # 使用最佳阈值对 LGBM 验证集预测结果进行后处理
+    lgbm_val_preds_processed = apply_post_processing(lgbm_val_preds, t_f, t_c, t_l)
+    
+    lgbm_val_preds_renamed = lgbm_val_preds_processed.rename(columns={
         'forward_count_log': 'forward_count',
         'comment_count_log': 'comment_count',
         'like_count_log': 'like_count'
     })
+    
     lgbm_score = calculate_weibo_score(real_valid_data, lgbm_val_preds_renamed)
-    print(f"[LightGBM] 机器学习模型的得分: {lgbm_score*100:.4f}")
+    print(f"\n[LightGBM] 机器学习模型 (最佳阈值后处理) 的得分: {lgbm_score*100:.4f}")
 
     # 计算提升
     improvement = (lgbm_score - baseline_score) * 100
@@ -89,8 +99,11 @@ def main():
     # ==================== 5. 生成提交文件 ====================
     print("\n>>> 正在生成最终提交文件...")
     
+    # 使用刚找到的最佳阈值对最终的测试集预测结果(LGBM+XGBoost融合后)进行后处理
+    final_test_predictions_processed = apply_post_processing(final_test_predictions, t_f, t_c, t_l)
+    
     # 对齐提交要求的列名（去掉 _log）
-    final_test_predictions_renamed = final_test_predictions.rename(columns={
+    final_test_predictions_renamed = final_test_predictions_processed.rename(columns={
         'forward_count_log': 'forward_count',
         'comment_count_log': 'comment_count',
         'like_count_log': 'like_count'
