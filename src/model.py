@@ -83,11 +83,19 @@ def train_lgbm_models(train_set, valid_set, test_set):
     test_predictions = pd.DataFrame({'uid': test_set['uid'], 'mid': test_set['mid']})
     valid_predictions = pd.DataFrame({'uid': valid_set['uid'], 'mid': valid_set['mid']})
     
+    # 样本加权：对齐官方评分公式，增加对数平滑 (Log Smoothing)
+    # 基础权重为1，加上 log1p(总互动数)，降低爆款的极端权重惩罚，同时兼顾 0 互动的样本
+    train_count = train_set['forward_count'] + train_set['comment_count'] + train_set['like_count']
+    valid_count = valid_set['forward_count'] + valid_set['comment_count'] + valid_set['like_count']
+    
+    train_weights = np.log1p(train_count) + 1.0
+    valid_weights = np.log1p(valid_count) + 1.0
+    
     for target in TARGETS:
         print(f"Training LGBM for: {target}")
         
-        dtrain = lgb.Dataset(train_set[features], label=train_set[target])
-        dvalid = lgb.Dataset(valid_set[features], label=valid_set[target], reference=dtrain)
+        dtrain = lgb.Dataset(train_set[features], label=train_set[target], weight=train_weights)
+        dvalid = lgb.Dataset(valid_set[features], label=valid_set[target], reference=dtrain, weight=valid_weights)
         
         model = lgb.train(
             lgb_params,
@@ -130,13 +138,22 @@ def train_xgboost_and_ensemble(train_set, valid_set, test_set, lgb_test_preds):
     
     final_ensemble_preds = pd.DataFrame({'uid': test_set['uid'], 'mid': test_set['mid']})
     
+    # 样本加权：对齐官方评分公式，增加对数平滑 (Log Smoothing)
+    train_count = train_set['forward_count'] + train_set['comment_count'] + train_set['like_count']
+    valid_count = valid_set['forward_count'] + valid_set['comment_count'] + valid_set['like_count']
+    
+    train_weights = np.log1p(train_count) + 1.0
+    valid_weights = np.log1p(valid_count) + 1.0
+    
     for target in TARGETS:
         print(f"Training XGBoost for {target}...")
         model = xgb.XGBRegressor(**xgb_params, n_estimators=500, early_stopping_rounds=50)
         
         model.fit(
             train_set[features], train_set[target],
+            sample_weight=train_weights,
             eval_set=[(valid_set[features], valid_set[target])],
+            sample_weight_eval_set=[valid_weights],
             verbose=False
         )
         
