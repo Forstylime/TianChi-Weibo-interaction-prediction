@@ -59,13 +59,13 @@ def create_features(df_train, df_test):
     # Note: Running full TF-IDF on millions of rows will crash your RAM. 
     # We restrict it to max_features=50 or use TruncatedSVD to compress it.
     print("Extracting NLP Features (TF-IDF)...")
-    tfidf = TfidfVectorizer(max_features=20, analyzer='char_wb', ngram_range=(1,2)) 
+    tfidf = TfidfVectorizer(max_features=1000, analyzer='char_wb', ngram_range=(1,2)) 
     tfidf_matrix = tfidf.fit_transform(df['content'])
     
-    # Add top 5 PCA/SVD components of text to dataframe
-    svd = TruncatedSVD(n_components=5, random_state=42)
+    # Add top 64 PCA/SVD components of text to dataframe
+    svd = TruncatedSVD(n_components=64, random_state=42)
     text_svd = svd.fit_transform(tfidf_matrix)
-    for i in range(5):
+    for i in range(64):
         df[f'text_svd_{i}'] = text_svd[:, i]
 
     # =========================================================

@@ -55,8 +55,11 @@ The system uses a weighted ensemble of two gradient boosting frameworks:
 ---
 ## 4. Score Record
 
-| Model         | Score    | 绝对提升  |对应结果文件|
-|---------------|----------|----------|--------------|
-| Baseline      | 27.5265% | -        | -            |
-| Version 1.0   | 30.9287% | 3.4022%  | submission/submission_1.0.txt |
-| Version 1.1   | 30.6816% | 3.1551%  | submission/submission_1.1.txt |
+| Model         | Validation Score | Absolute Improvement  | Submission File         | Official Score |
+|---------------|------------------|-----------------------|-------------------------|----------------|
+| Baseline      | 27.5265%         | -                     | -                       | -              |
+| Version 1.0   | 30.9287%         | 3.4022%               | submission_0.0.txt      | 0.2950         |
+| Version 1.1   | 30.6816%         | 3.1551%               | submission_1.2.txt      | 0.3020         |
+| Version 1.2   | 31.3058%         | 3.7792%               | submission_1.3.txt      | 0.3036         |
+| Version 1.3   | 31.0624%         | 3.5359%               | submission_1.4.txt      | 0.3032         |
+| Version 1.4   | 31.3058%         | 3.7792%               | submission_1.5.txt      | 0.3044         |
