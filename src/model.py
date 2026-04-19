@@ -76,7 +76,7 @@ def train_lgbm_models(train_set, valid_set, test_set):
         'bagging_fraction': 0.8,
         'bagging_freq': 5,
         'n_jobs': -1,
-        'random_state': 42
+        'random_state': 419
     }
     
     models = {}
@@ -124,7 +124,7 @@ def train_xgboost_and_ensemble(train_set, valid_set, test_set, lgb_test_preds):
         'max_depth': 6,
         'subsample': 0.8,
         'colsample_bytree': 0.8,
-        'random_state': 42,
+        'random_state': 419,
         'n_jobs': -1
     }
     
@@ -144,9 +144,9 @@ def train_xgboost_and_ensemble(train_set, valid_set, test_set, lgb_test_preds):
         xgb_pred_log = model.predict(test_set[features])
         xgb_pred = np.expm1(xgb_pred_log)
         
-        # 模型融合：60% LGBM + 40% XGBoost
+        # 模型融合：10% LGBM + 90% XGBoost
         lgb_pred = lgb_test_preds[target].values
-        fused_pred = (0.6 * lgb_pred) + (0.4 * xgb_pred)
+        fused_pred = (0.1 * lgb_pred) + (0.9 * xgb_pred)
         
         # 确保预测值不为负数 (暂不取整，留给后处理)
         final_ensemble_preds[target] = np.clip(fused_pred, 0, None)
@@ -162,7 +162,7 @@ def apply_post_processing(preds, t_f, t_c, t_l):
     1. 连续值预测如果 < threshold，置为 0。
     2. 连续值预测如果 >= threshold 且 < 1，置为 1。
     3. 连续值预测如果 >= 1，使用向下取整 (math.floor)。
-    4. 连带压制规则：如果点赞数为 0，则评论数和转发数强制置为 0。
+    4. 连带压制规则（暂时不使用，因为对验证集得分提升不明显）
     """
     res = preds.copy()
     
@@ -185,14 +185,14 @@ def apply_post_processing(preds, t_f, t_c, t_l):
         
         res[target_col] = new_val.astype(int)
         
-    # 连带压制规则
-    like_col = 'like_count_log' if 'like_count_log' in res.columns else 'like_count'
-    comment_col = 'comment_count_log' if 'comment_count_log' in res.columns else 'comment_count'
-    forward_col = 'forward_count_log' if 'forward_count_log' in res.columns else 'forward_count'
+    # 连带压制规则（初步探索发现不太明显，暂时注释）
+    # like_col = 'like_count_log' if 'like_count_log' in res.columns else 'like_count'
+    # comment_col = 'comment_count_log' if 'comment_count_log' in res.columns else 'comment_count'
+    # forward_col = 'forward_count_log' if 'forward_count_log' in res.columns else 'forward_count'
     
-    mask_like_0 = res[like_col] == 0
-    res.loc[mask_like_0, comment_col] = 0
-    res.loc[mask_like_0, forward_col] = 0
+    # mask_like_0 = res[like_col] == 0
+    # res.loc[mask_like_0, comment_col] = 0
+    # res.loc[mask_like_0, forward_col] = 0
     
     return res
 
@@ -205,7 +205,7 @@ def optimize_thresholds(real_valid_data, valid_preds):
     best_thresholds = (0.5, 0.5, 0.5)
     
     # 定义搜索空间 (0.5 到 0.8，步长 0.05)
-    search_space = np.arange(0.5, 0.85, 0.05)
+    search_space = np.arange(0.5, 0.5, 0.05) # 人工评估还是 0.5 0.5 0.5 比较好，暂时固定
     
     # 暂存用于评分的 DataFrame，因为评分函数期望特定的列名
     eval_preds = valid_preds.copy()

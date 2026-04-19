@@ -62,4 +62,7 @@ The system uses a weighted ensemble of two gradient boosting frameworks:
 | Version 1.1   | 30.6816%         | 3.1551%               | submission_1.2.txt      | 0.3020         |
 | Version 1.2   | 31.3058%         | 3.7792%               | submission_1.3.txt      | 0.3036         |
 | Version 1.3   | 31.0624%         | 3.5359%               | submission_1.4.txt      | 0.3032         |
-| Version 1.4   | 31.3058%         | 3.7792%               | submission_1.5.txt      | 0.3044         |
+| Version 1.4   | 31.3058%         | 3.7792%               | submission_1.5.txt      | 0.3036         |
+| Version 2.0   | 31.3092%         | 3.7827%               | submission_2.0.txt      | 0.3000         |
+| Version 2.1   | 31.5589%         | 4.0324%               | submission_2.1.txt      | 0.3031         |
+| Version 2.2   | 31.3829%         | 3.8563%               | submission_2.2.txt      | 0.3073         |
