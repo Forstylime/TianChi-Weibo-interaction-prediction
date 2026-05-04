@@ -59,7 +59,7 @@ def main():
     # ==================== 3. 运行模型流水线 ====================
     # run_pipeline 包含了：时间切分、Baseline计算、LGBM训练、XGB融合
     print("\n>>> 进入模型训练与预测流水线...")
-    valid_set, baseline_val_preds, lgbm_val_preds, final_test_predictions = run_pipeline(
+    valid_set, baseline_val_preds, lgbm_val_preds, _, training_artifacts = run_pipeline(
         df_train_final, df_test_final
     )
 
@@ -98,7 +98,16 @@ def main():
 
     # ==================== 5. 生成提交文件 ====================
     print("\n>>> 正在生成最终提交文件...")
-    
+
+    from src.model import retrain_full_and_predict
+
+    final_test_predictions = retrain_full_and_predict(
+        df_train_final,
+        df_test_final,
+        training_artifacts['lgbm_best_iterations'],
+        training_artifacts['xgb_best_iterations']
+    )
+
     # 使用刚找到的最佳阈值对最终的测试集预测结果(LGBM+XGBoost融合后)进行后处理
     final_test_predictions_processed = apply_post_processing(final_test_predictions, t_f, t_c, t_l)
     

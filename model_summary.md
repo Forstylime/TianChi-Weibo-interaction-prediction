@@ -1,4 +1,4 @@
-# 🚀 Weibo Interaction Prediction: Technical Summary (v2.4+)
+# 🚀 Weibo Interaction Prediction: Technical Summary
 
 This document provides a comprehensive overview of the current technical architecture and feature engineering strategies implemented to predict Weibo interactions (Forward, Comment, and Like counts).
 
@@ -80,10 +80,12 @@ Predictions are refined through a threshold-based post-processing layer:
 | V 1.0 | 30.9287% | 3.4022% | submission_0.0.txt | 0.2950 | 添加特征 |
 | V 1.1 | 30.6816% | 3.1551% | submission_1.2.txt | 0.3020 | 添加特征|
 | V 1.2 | 31.3058% | 3.7792% | submission_1.3.txt | 0.3036 | 增加时间窗口特征 |
-| V 1.3 | 31.0624% | 3.5359% | submission_1.4.txt | 0.3032 | SVD维度5->64 |
+| V 1.3 | 31.0624% | 3.5359% | submission_1.4.txt | 0.3032 | SVD维度5 -> 64 |
 | V 1.4 | 31.3058% | 3.7792% | submission_1.5.txt | 0.3036 | - |
 | V 2.0 | 31.3092% | 3.7827% | submission_2.0.txt | 0.3000 | 增加后处理 |
 | V 2.1 | 31.5589% | 4.0324% | submission_2.1.txt | 0.3031 | - |
 | V 2.2 | 31.3829% | 3.8563% | submission_2.2.txt | 0.3073 | 修改模型权重 |
-| 🏆 **V 2.3** | **31.7122%** | **4.1857%** | **submission_2.3.txt** | **0.3116** | 引入样本加权 |
+| V 2.3 | 31.7122% | 4.1857% | submission_2.3.txt | 0.3116 | 引入样本加权 |
 | V 2.4 | 32.5763% | 5.0498% | submission_2.4.txt | 0.3102 | 增加 Stacking |
+| V 3.0 | 31.7122% | 4.1857% | submission_3.0.txt | 0.3195 | 只用Xgboost，全量训练 |
+| 🏆 **V 3.1** | 31.7122% | 4.1857% | submission_3.1.txt | **0.3199** | 融合：10%LGBM+90%XGBoost |

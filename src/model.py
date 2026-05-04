@@ -76,10 +76,12 @@ def train_lgbm_models(train_set, valid_set, test_set):
         'bagging_fraction': 0.8,
         'bagging_freq': 5,
         'n_jobs': -1,
+        'verbose': -1,
         'random_state': 419
     }
     
     models = {}
+    best_iterations = {}
     test_predictions = pd.DataFrame({'uid': test_set['uid'], 'mid': test_set['mid']})
     valid_predictions = pd.DataFrame({'uid': valid_set['uid'], 'mid': valid_set['mid']})
     
@@ -105,6 +107,7 @@ def train_lgbm_models(train_set, valid_set, test_set):
             callbacks=[lgb.early_stopping(stopping_rounds=50), lgb.log_evaluation(100)]
         )
         models[target] = model
+        best_iterations[target] = model.best_iteration
         
         # 验证集预测并还原对数
         val_pred_log = model.predict(valid_set[features], num_iteration=model.best_iteration)
@@ -114,7 +117,7 @@ def train_lgbm_models(train_set, valid_set, test_set):
         test_pred_log = model.predict(test_set[features], num_iteration=model.best_iteration)
         test_predictions[target] = np.expm1(test_pred_log)
 
-    return models, valid_predictions, test_predictions
+    return models, valid_predictions, test_predictions, best_iterations
 
 # =========================================================
 # 4. 训练 XGBoost 并进行模型融合 (LGBM + XGBoost)
@@ -137,6 +140,7 @@ def train_xgboost_and_ensemble(train_set, valid_set, test_set, lgb_test_preds):
     }
     
     final_ensemble_preds = pd.DataFrame({'uid': test_set['uid'], 'mid': test_set['mid']})
+    best_iterations = {}
     
     # 样本加权：对齐官方评分公式，增加对数平滑 (Log Smoothing)
     train_count = train_set['forward_count'] + train_set['comment_count'] + train_set['like_count']
@@ -156,6 +160,7 @@ def train_xgboost_and_ensemble(train_set, valid_set, test_set, lgb_test_preds):
             sample_weight_eval_set=[valid_weights],
             verbose=False
         )
+        best_iterations[target] = model.best_iteration + 1
         
         # XGBoost 预测并还原
         xgb_pred_log = model.predict(test_set[features])
@@ -168,7 +173,80 @@ def train_xgboost_and_ensemble(train_set, valid_set, test_set, lgb_test_preds):
         # 确保预测值不为负数 (暂不取整，留给后处理)
         final_ensemble_preds[target] = np.clip(fused_pred, 0, None)
         
-    return final_ensemble_preds
+    return final_ensemble_preds, best_iterations
+
+def retrain_full_and_predict(full_train_set, test_set, lgb_best_iterations, xgb_best_iterations):
+    """
+    使用验证阶段确定的最佳迭代轮数，在全量训练集上重训并预测测试集。
+    """
+    print("\n--- Retraining On Full Training Data For Final Submission ---")
+    features = [c for c in full_train_set.columns if c not in DROP_COLS + TARGETS]
+
+    lgb_params = {
+        'objective': 'regression',
+        'metric': 'mae',
+        'learning_rate': 0.05,
+        'num_leaves': 31,
+        'max_depth': 6,
+        'feature_fraction': 0.8,
+        'bagging_fraction': 0.8,
+        'bagging_freq': 5,
+        'n_jobs': -1,
+        'random_state': 419
+    }
+
+    xgb_params = {
+        'objective': 'reg:absoluteerror',
+        'learning_rate': 0.05,
+        'max_depth': 6,
+        'subsample': 0.8,
+        'colsample_bytree': 0.8,
+        'random_state': 419,
+        'n_jobs': -1
+    }
+
+    full_count = (
+        full_train_set['forward_count'] +
+        full_train_set['comment_count'] +
+        full_train_set['like_count']
+    )
+    full_weights = np.log1p(full_count) + 1.0
+
+    final_predictions = pd.DataFrame({'uid': test_set['uid'], 'mid': test_set['mid']})
+
+    for target in TARGETS:
+        print(f"Retraining full models for {target}...")
+
+        dtrain_full = lgb.Dataset(
+            full_train_set[features],
+            label=full_train_set[target],
+            weight=full_weights
+        )
+        lgb_model_full = lgb.train(
+            lgb_params,
+            dtrain_full,
+            num_boost_round=lgb_best_iterations[target]
+        )
+        lgb_pred = np.expm1(
+            lgb_model_full.predict(test_set[features], num_iteration=lgb_best_iterations[target])
+        )
+
+        xgb_model_full = xgb.XGBRegressor(
+            **xgb_params,
+            n_estimators=xgb_best_iterations[target]
+        )
+        xgb_model_full.fit(
+            full_train_set[features],
+            full_train_set[target],
+            sample_weight=full_weights,
+            verbose=False
+        )
+        xgb_pred = np.expm1(xgb_model_full.predict(test_set[features]))
+
+        fused_pred = (0.1 * lgb_pred) + (0.9 * xgb_pred)
+        final_predictions[target] = np.clip(fused_pred, 0, None)
+
+    return final_predictions
 
 # =========================================================
 # 5. 后处理与阈值优化
@@ -221,7 +299,7 @@ def optimize_thresholds(real_valid_data, valid_preds):
     best_score = -1.0
     best_thresholds = (0.5, 0.5, 0.5)
     
-    # 定义搜索空间 (0.5 到 0.8，步长 0.05)
+    # 定义搜索空间 (0.3 到 0.7，步长 0.05)
     search_space = np.arange(0.5, 0.5, 0.05) # 人工评估还是 0.5 0.5 0.5 比较好，暂时固定
     
     # 暂存用于评分的 DataFrame，因为评分函数期望特定的列名
@@ -266,9 +344,14 @@ def run_pipeline(df_train_final, df_test_final):
     baseline_val_preds = baseline_model_predict(valid_set)
     
     # 3. 训练 LightGBM
-    lgbm_models, lgbm_val_preds, lgbm_test_preds = train_lgbm_models(train_set, valid_set, df_test_final)
-    
+    lgbm_models, lgbm_val_preds, lgbm_test_preds, lgbm_best_iterations = train_lgbm_models(train_set, valid_set, df_test_final)
+
     # 4. 训练 XGBoost 并融合生成最终提交结果
-    final_test_predictions = train_xgboost_and_ensemble(train_set, valid_set, df_test_final, lgbm_test_preds)
-    
-    return valid_set, baseline_val_preds, lgbm_val_preds, final_test_predictions
+    final_test_predictions, xgb_best_iterations = train_xgboost_and_ensemble(train_set, valid_set, df_test_final, lgbm_test_preds)
+
+    training_artifacts = {
+        'lgbm_best_iterations': lgbm_best_iterations,
+        'xgb_best_iterations': xgb_best_iterations
+    }
+
+    return valid_set, baseline_val_preds, lgbm_val_preds, final_test_predictions, training_artifacts
